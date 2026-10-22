@@ -107,8 +107,39 @@ def _pick_digit(vector: list[float], preferred: int | None = None) -> tuple[str,
     return _id2char[best], float(vector[best]) - float(runner)
 
 
-def recognize(image: bytes, *, min_margin: float = DEFAULT_MIN_MARGIN) -> str | None:
-    """识别四位数字验证码；把握不足或位数不符时返回 None，由调用方换码重试。"""
+def _split_four(vectors: list[list[float]]) -> tuple[str, float]:
+    """兜底：把步序列均分四段，每段在数字维度上求和后取最优。
+
+    验证码是等宽的四位数字，贪心解不出四位时（字符粘连或断裂）
+    用这个先验强制切成四位，总比直接放弃多一次机会。
+    """
+    n = len(vectors)
+    edges = [round(n * k / 4) for k in range(5)]
+    chars: list[str] = []
+    worst = 1.0
+    for start, stop in zip(edges, edges[1:]):
+        segment = vectors[start:stop] or [vectors[min(start, n - 1)]]
+        totals = dict.fromkeys(_digit_ids, 0.0)
+        for vector in segment:
+            for index in _digit_ids:
+                totals[index] += vector[index]
+        best = max(_digit_ids, key=lambda i: totals[i])
+        runner = max((totals[i] for i in _digit_ids if i != best), default=0.0)
+        chars.append(_id2char[best])
+        overall = sum(totals.values())
+        if overall > 0:
+            worst = min(worst, (totals[best] - runner) / overall)
+    return "".join(chars), worst
+
+
+def recognize(image: bytes, *, min_margin: float = DEFAULT_MIN_MARGIN,
+              rescue: bool = False) -> str | None:
+    """识别四位数字验证码。
+
+    Args:
+        min_margin: 裕度门槛，低于它视为不可靠并返回 None
+        rescue: 贪心解不出四位时，是否用四段均分强行给出四位结果
+    """
     if not image:
         return None
     if not warmup():
@@ -128,8 +159,12 @@ def recognize(image: bytes, *, min_margin: float = DEFAULT_MIN_MARGIN) -> str | 
 
     positions = _ctc_decode(vectors)
     if len(positions) != 4:
-        log.warn(f"验证码解出 {len(positions)} 位，不是 4 位，换一张")
-        return None
+        if not rescue:
+            log.warn(f"验证码解出 {len(positions)} 位，不是 4 位，换一张")
+            return None
+        code, margin = _split_four(vectors)
+        log.info(f"解出 {len(positions)} 位，改用四段均分兜底：{code}（裕度 {margin:.3f}）")
+        return code
 
     chars: list[str] = []
     worst = 1.0

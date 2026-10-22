@@ -223,7 +223,11 @@ class Runner:
     # ── 验证码 ──────────────────────────────────────────────
 
     def _fresh_code(self, wid: str, *, strict: bool = True) -> str | None:
-        """取一张新验证码并识别。strict 时要求较高把握，否则接受任意 4 位数字。"""
+        """取一张新验证码并识别。
+
+        strict 时只接受把握充分的结果；不 strict 时放宽裕度，并允许
+        「四段均分」兜底——抢到时机比追求完美更重要。
+        """
         try:
             image = self.client.captcha()
         except SessionExpired:
@@ -234,7 +238,7 @@ class Runner:
         if not image:
             return None
         margin = captcha.DEFAULT_MIN_MARGIN if strict else 0.0
-        return captcha.recognize(image, min_margin=margin)
+        return captcha.recognize(image, min_margin=margin, rescue=not strict)
 
     def _prefetch(self, lecture: Lecture) -> None:
         try:
