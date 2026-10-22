@@ -1,0 +1,2 @@
+# 仓库内统一使用 LF，避免 Windows 与 Linux 混用导致脚本出现差异
+* text=auto eol=lf

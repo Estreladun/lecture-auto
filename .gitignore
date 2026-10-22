@@ -1,0 +1,11 @@
+# 凭据与运行数据
+.env
+state/
+*.log
+
+# Python
+.venv/
+__pycache__/
+*.py[cod]
+.uv/
+*.egg-info/
