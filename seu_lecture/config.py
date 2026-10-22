@@ -232,12 +232,17 @@ class Settings:
             name for name, enabled in (("线上", self.online), ("线下", self.offline)) if enabled
         )
         host = urlsplit(self.entry).hostname or self.entry
+        rate = 1 / self.poll_seconds if self.poll_seconds else 0
         return (
             f"账号 {self.username[:3]}***  形式 {modes}\n"
             f"站点 {host}\n"
             f"关键词 {show(self.keywords)}\n"
             f"分类 {show(self.categories)}\n"
             f"校区 {show(self.campuses)}\n"
+            f"节奏 轮询 {self.poll_seconds:g}s（约 {rate:.1f} 次/秒）"
+            f" / 连击 {self.burst_attempts} 次"
+            f" / 预取 {self.prefetch_seconds:g}s"
+            f" / 保活 {self.keepalive_seconds:g}s\n"
             f"代理 {'跟随系统' if self.use_proxy else '直连'}\n"
             f"邮件 {'已启用' if self.smtp else '未启用'}"
         )

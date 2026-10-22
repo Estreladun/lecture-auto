@@ -295,7 +295,10 @@ class Runner:
                             return
                         continue
                     except Exception as exc:
-                        log.warn(f"刷新讲座状态失败：{type(exc).__name__}")
+                        log.warn(
+                            f"刷新讲座状态失败：{type(exc).__name__}，"
+                            f"{self.settings.poll_seconds:g} 秒后重试"
+                        )
                         time.sleep(self.settings.poll_seconds)
                         continue
 
@@ -304,6 +307,10 @@ class Runner:
                         if missing >= MAX_MISSING:
                             log.warn(f"目标讲座已从列表消失，放弃：{lecture.title}")
                             return
+                        if missing == 1:
+                            log.warn(
+                                f"目标讲座暂不在列表中，每 {self.settings.poll_seconds:g} 秒继续查找"
+                            )
                         time.sleep(self.settings.poll_seconds)
                         continue
                     missing = 0
@@ -314,7 +321,10 @@ class Runner:
                         end_at = current.reserve_end
                     if current.full:
                         if time.monotonic() - last_full_log >= FULL_LOG_INTERVAL:
-                            log.info(f"名额已满（{current.seat_text}），持续等待他人取消……")
+                            log.info(
+                                f"名额已满（{current.seat_text}），"
+                                f"每 {self.settings.poll_seconds:g} 秒检查一次，等待他人取消……"
+                            )
                             last_full_log = time.monotonic()
                         burst = 0
                         time.sleep(self.settings.poll_seconds)
@@ -378,6 +388,9 @@ class Runner:
                         continue
                     if result == CAPTCHA_WRONG:
                         captcha_failures += 1
+                        log.warn(
+                            f"验证码不正确（第 {captcha_failures} 次），立即换一张重试"
+                        )
                         if captcha_failures >= CAPTCHA_FAIL_LIMIT:
                             break  # 交给外层统一收尾
                         continue

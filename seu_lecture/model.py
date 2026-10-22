@@ -138,8 +138,12 @@ def matches(lecture: Lecture, *, keywords: tuple[str, ...], categories: tuple[st
         return False
     if categories and not any(word in lecture.category for word in categories):
         return False
-    if campuses and not any(word in (lecture.campus, lecture.location) for word in campuses):
-        return False
+    if campuses:
+        # 拼接后按子串匹配：写「九龙湖」也能命中「九龙湖校区」。
+        # 注意不能写成 `word in (campus, location)`，那是元组元素的全等比较。
+        place = f"{lecture.campus or ''} {lecture.location or ''}"
+        if not any(word in place for word in campuses):
+            return False
     return True
 
 

@@ -1,6 +1,6 @@
 # 东南大学讲座自动预约
 
-东南大学「人文与科学素养系列讲座」等讲座的自动预约工具：一卡通账号密码登录（不再手动复制 Cookie）、自动识别四位数字验证码、按预约开放时间精确抢位、满员时持续候补，支持线上/线下筛选、邮件通知与状态持久化。
+东南大学「人文与科学素养系列讲座」等讲座的自动预约工具：一卡通账号密码登录、自动识别四位数字验证码、按预约开放时间精确抢位、满员时持续候补，支持线上/线下筛选、邮件通知与状态持久化。
 
 适用于东大 ehall 微应用体系（`ehall.seu.edu.cn` + `auth.seu.edu.cn` CAS 认证 + 验证码）。其他学校的同构系统改一下 `.env` 里的接入地址也能用。
 
@@ -12,7 +12,7 @@
 uv sync
 ```
 
-首次会下载 Python 3.12 与依赖（ddddocr 含 onnxruntime，约几百 MB）。国内网络慢的话换镜像，10 秒能装完：
+首次会下载 Python 3.12 与依赖。国内网络慢的话换镜像，10 秒能装完：
 
 ```bash
 UV_DEFAULT_INDEX=https://pypi.tuna.tsinghua.edu.cn/simple uv sync
@@ -68,11 +68,11 @@ SEU_PASSWORD=' 你的密码 '
 | `SEU_GATEWAY_IP` | 网关备用 IP（域名解析不到时用） | `121.249.14.2` |
 | `SEU_API_BASES` | 额外候选接口基址，逗号分隔 | 已填东大新版应用 |
 | `SEU_TARGET_KEYWORDS` | 标题关键词，任一命中即抢 | `'["法律"]'` |
-| `SEU_PREFERRED_CAMPUS` | 只抢指定校区 | `'["九龙湖校区"]'` |
+| `SEU_PREFERRED_CAMPUS` | 只抢指定校区（子串匹配，写「九龙湖」也能命中「九龙湖校区」） | `'["九龙湖校区"]'` |
 | `SEU_REQUIRED_CATEGORIES` | 按讲座分类过滤 | `'["人文与科学素养系列讲座_法律"]'` |
 | `SEU_ENABLE_ONLINE` | 是否抢线上 | `true` |
 | `SEU_ENABLE_OFFLINE` | 是否抢线下 | `true` |
-| `SEU_POLL_SECONDS` | 候补轮询间隔（秒） | `0.2` |
+| `SEU_POLL_SECONDS` | 候补轮询间隔（秒），直接决定满员等待与失败重试的节奏 | `0.2` |
 | `SEU_BURST_ATTEMPTS` | 开放瞬间连击次数 | `5` |
 | `SEU_MAX_ATTEMPTS` | 单场最多提交次数，0 不限 | `0` |
 | `SEU_USE_PROXY` | 是否跟随系统代理 | `false` 直连 |
@@ -165,18 +165,17 @@ state/                运行时生成：state.json、logs/、run.lock
 系统在限流，把 `SEU_POLL_SECONDS` 调大到 `0.5` 或 `1`。
 
 **验证码怎么识别的**
-仓库自带一个针对四位数字训练的专用模型（`seu_lecture/models/captcha.onnx`，946KB），推理走 onnxruntime，**单张 0.9 ms**，只输出数字，不会出现 `066s`、`967O` 这种结果。
+仓库自带一个针对四位数字训练的专用模型（`seu_lecture/models/captcha.onnx`，946KB），推理走 onnxruntime。
 
 模型缺失时会自动回退到 ddddocr，并套上 CTC 解码 + 只取数字。
 
-**只校验“是不是四位数字”，不做置信度筛选。** 解出四位就直接提交，让服务器判定对错——本地先否决再重新取码等于多花一次请求，直接试反而更快；错了重试也在同一条链路上。
 
 | 方案 | 14 张标注准确率 | 单张耗时 | 体积 |
 | --- | --- | --- | --- |
 | 专用 CNN（默认） | **14/14** | **0.9 ms** | 946 KB |
 | ddddocr + 后处理（回退） | 13/14 | 20-30 ms | 30 MB |
 
-模型是怎么来的：数据取自 [GT-ZhangAcer/CaptchaDataset](https://github.com/GT-ZhangAcer/CaptchaDataset)（9453 张人工审核的四位数字图，MIT 许可）+ 本项目采集的 1023 张样本。那批图尺寸同为 70×30、风格一致，可直接混训。模型是 242K 参数的 CNN，训练一轮约 30 秒。
+模型是怎么来的：数据取自 [GT-ZhangAcer/CaptchaDataset](https://github.com/GT-ZhangAcer/CaptchaDataset)（9453 张人工审核的四位数字图，MIT 许可）+ 本项目采集的 1023 张样本。那批图尺寸同为 70×30、风格一致，可直接混训。
 
 训练代码与数据集不在本仓库内。要换风格或重训，需要自己准备数据。
 
