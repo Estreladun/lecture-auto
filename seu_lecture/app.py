@@ -33,6 +33,10 @@ BUSY_DELAYS = (0.1, 0.2, 0.3)
 BUSY_JITTER = 0.02
 FULL_LOG_INTERVAL = 30.0
 CAPTCHA_FAIL_LIMIT = 30
+# 前几次取码要求高把握，之后放宽，避免一直卡在"识别不出来"而错过时机
+STRICT_CODE_ATTEMPTS = 4
+# 连续取不到任何可信验证码的上限
+CODE_MISS_LIMIT = 15
 MAX_MISSING = 100  # 连续拉不到目标讲座多少次后放弃
 
 
@@ -218,7 +222,8 @@ class Runner:
 
     # ── 验证码 ──────────────────────────────────────────────
 
-    def _fresh_code(self, wid: str) -> str | None:
+    def _fresh_code(self, wid: str, *, strict: bool = True) -> str | None:
+        """取一张新验证码并识别。strict 时要求较高把握，否则接受任意 4 位数字。"""
         try:
             image = self.client.captcha()
         except SessionExpired:
@@ -228,7 +233,8 @@ class Runner:
             return None
         if not image:
             return None
-        return captcha.recognize(image)
+        margin = captcha.DEFAULT_MIN_MARGIN if strict else 0.0
+        return captcha.recognize(image, min_margin=margin)
 
     def _prefetch(self, lecture: Lecture) -> None:
         try:
@@ -264,6 +270,7 @@ class Runner:
         burst = self.settings.burst_attempts if cached is None else 0
         last_full_log = 0.0
         captcha_failures = 0
+        code_misses = 0
         missing = 0
         attempts = 0
 
@@ -320,10 +327,19 @@ class Runner:
                 while True:
                     try:
                         if not code:
-                            code = self._fresh_code(wid)
+                            code = self._fresh_code(
+                                wid, strict=code_misses < STRICT_CODE_ATTEMPTS
+                            )
                         if not code:
-                            captcha_failures += 1
-                            break
+                            # 识别不可靠：直接换一张，不浪费一次提交机会
+                            code_misses += 1
+                            if code_misses >= CODE_MISS_LIMIT:
+                                log.error(
+                                    f"连续 {code_misses} 次取不到可信验证码，放弃：{lecture.title}"
+                                )
+                                self._notify("captcha_locked", f"讲座：{lecture.title}")
+                                return
+                            continue
                         result = self.client.submit(wid, code)
                     except SessionExpired:
                         if not self._relogin():
