@@ -6,7 +6,11 @@ requires-python = ">=3.11,<3.13"
 dependencies = [
     "requests>=2.32,<3",
     "cryptography>=43",
+    # 回退用的通用 OCR；有专用模型时不会加载
     "ddddocr>=1.5,<2",
+    # 专用模型推理（seu_lecture/models/captcha.onnx），也可由 ddddocr 带出，但显式声明
+    "onnxruntime>=1.17",
+    "numpy>=1.26",
     "pillow>=10,<13",
     "python-dotenv>=1,<2",
     "apscheduler>=3.10,<4",

@@ -10,12 +10,6 @@ __pycache__/
 .uv/
 *.egg-info/
 
-# 训练数据与中间产物（体积大，按 train/README.md 本地生成）
-train/data/images/
-train/data/external_dataset/
-train/data/labels.json
-train/data/labels_external.json
-train/out/
-
-# 训练权重与备份（运行时用的是导出后的 seu_lecture/models/captcha.onnx）
-train/checkpoints/
+# 训练代码、数据与权重均不公开；
+# 运行时只依赖已导出的 seu_lecture/models/captcha.onnx（946KB）
+train/

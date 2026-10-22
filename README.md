@@ -134,12 +134,13 @@ main.py               命令行入口
 seu_lecture/
   config.py           环境变量解析与校验
   client.py           CAS 登录 + 业务接口（含网关直连与接口自动探测）
-  captcha.py          验证码识别
+  captcha.py          验证码识别（专用模型优先，ddddocr 回退）
   model.py            讲座数据模型与筛选规则
   app.py              调度与抢位主循环
   state.py            状态文件（原子写 + 进程互斥）
   mailer.py           邮件通知
   log.py              日志
+  models/captcha.onnx 验证码识别模型（946KB）
 state/                运行时生成：state.json、logs/、run.lock
 ```
 
@@ -166,16 +167,16 @@ state/                运行时生成：state.json、logs/、run.lock
 **验证码怎么识别的**
 仓库自带一个针对四位数字训练的专用模型（`seu_lecture/models/captcha.onnx`，946KB），推理走 onnxruntime，**单张 0.9 ms**，只输出数字，不会出现 `066s`、`967O` 这种结果。
 
-模型缺失时会自动回退到 ddddocr，并套上 CTC 解码 + 只取数字 + 概率裕度过滤（做法见 `train/README.md`）。
+模型缺失时会自动回退到 ddddocr，并套上 CTC 解码 + 只取数字 + 概率裕度过滤。
 
 | 方案 | 14 张标注准确率 | 单张耗时 | 体积 |
 | --- | --- | --- | --- |
 | 专用 CNN（默认） | **14/14** | **0.9 ms** | 946 KB |
 | ddddocr + 后处理（回退） | 13/14 | 20-30 ms | 30 MB |
 
-模型是怎么来的：数据取自 [GT-ZhangAcer/CaptchaDataset](https://github.com/GT-ZhangAcer/CaptchaDataset)（9453 张人工审核的四位数字图，MIT 许可）+ 本项目采集的样本。那批图尺寸同为 70×30、风格一致，可以直接混训。完整流程和实测数据在 `train/README.md`。
+模型是怎么来的：数据取自 [GT-ZhangAcer/CaptchaDataset](https://github.com/GT-ZhangAcer/CaptchaDataset)（9453 张人工审核的四位数字图，MIT 许可）+ 本项目采集的 1023 张样本。那批图尺寸同为 70×30、风格一致，可直接混训。模型是 242K 参数的 CNN，训练一轮约 30 秒。
 
-想自己重训或换风格，看 `train/README.md`。
+训练代码与数据集不在本仓库内。要换风格或重训，需要自己准备数据。
 
 ## 七、注意
 
