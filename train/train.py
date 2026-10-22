@@ -44,6 +44,8 @@ def main() -> int:
     parser.add_argument("--lr", type=float, default=1e-3)
     parser.add_argument("--channels", type=int, default=32)
     parser.add_argument("--val-ratio", type=float, default=0.15)
+    parser.add_argument("--patience", type=int, default=5,
+                        help="连续多少轮验证集没有提升就提前停止")
     parser.add_argument("--workers", type=int, default=0, help="Windows 下建议保持 0")
     args = parser.parse_args()
 
@@ -77,6 +79,7 @@ def main() -> int:
     )
 
     best = 0.0
+    stale = 0  # 连续多少轮没有提升
     checkpoint = HERE / "checkpoints" / "best.pt"
     checkpoint.parent.mkdir(parents=True, exist_ok=True)
     started = time.time()
@@ -99,6 +102,7 @@ def main() -> int:
         marker = ""
         if seq_acc > best:
             best = seq_acc
+            stale = 0
             torch.save(
                 {
                     "state_dict": model.state_dict(),
@@ -109,10 +113,16 @@ def main() -> int:
                 checkpoint,
             )
             marker = "  <- 保存"
+        else:
+            stale += 1
+            marker = f"  （{stale}/{args.patience} 轮无提升）"
         print(
             f"轮 {epoch:3d}/{args.epochs}  loss {train_loss:.4f}  "
             f"整串 {seq_acc:.2%}  单字 {char_acc:.2%}{marker}"
         )
+        if stale >= args.patience:
+            print(f"\n连续 {args.patience} 轮验证集没有提升，提前停止于第 {epoch} 轮")
+            break
 
     elapsed = time.time() - started
     print(f"\n训练完成，耗时 {elapsed/60:.1f} 分钟，最佳整串准确率 {best:.2%}")

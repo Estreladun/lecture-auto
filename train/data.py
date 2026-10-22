@@ -14,7 +14,7 @@ from pathlib import Path
 
 import numpy as np
 import torch
-from PIL import Image, ImageEnhance
+from PIL import Image, ImageDraw, ImageEnhance
 from torch.utils.data import Dataset
 
 IMAGE_HEIGHT = 30
@@ -33,6 +33,27 @@ def load_label_map(path: Path) -> dict[str, str]:
         if len(label) == DIGITS and label.isdigit():
             valid[name] = label
     return valid
+
+
+def _scribble(image: Image.Image, rng: random.Random) -> Image.Image:
+    """画 1-2 条深色干扰线，模拟真实验证码上的划线。
+
+    这是目前最要紧的一项增强：交叉校验发现模型会把被斜线穿过的 2 认成 7，
+    说明训练集里带干扰线的样本不足。
+    """
+    if rng.random() >= 0.35:
+        return image
+    canvas = image.copy()
+    draw = ImageDraw.Draw(canvas)
+    width, height = canvas.size
+    for _ in range(rng.randint(1, 2)):
+        x1 = rng.randint(-width // 4, width // 2)
+        y1 = rng.randint(0, height)
+        x2 = rng.randint(width // 2, width + width // 4)
+        y2 = rng.randint(0, height)
+        gray = rng.randint(20, 90)  # 与字色同侧，避免变成明显的浅灰线
+        draw.line((x1, y1, x2, y2), fill=gray, width=1 if rng.random() < 0.8 else 2)
+    return canvas
 
 
 def _rotate(image: Image.Image, rng: random.Random) -> Image.Image:
@@ -76,6 +97,8 @@ def _photometric(image: Image.Image, rng: random.Random) -> Image.Image:
 
 
 def augment(image: Image.Image, rng: random.Random) -> Image.Image:
+    # 干扰线先画：真实验证码是先画线再整体生成，后面的仿射/噪声应当同样作用于它
+    image = _scribble(image, rng)
     image = _rotate(image, rng)
     image = _shift(image, rng)
     image = _scale(image, rng)

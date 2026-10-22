@@ -64,12 +64,30 @@ uv run python train/make_review.py
 
 ```bash
 uv run python train/merge_labels.py
-E:\Miniforge3\envs\ai_base\python.exe train/train.py --epochs 25
+E:\Miniforge3\envs\ai_base\python.exe train/train.py --epochs 40 --patience 5
 ```
 
-CPU 上约 12 分钟。
+CPU 上约 8-12 分钟。`--patience` 是早停轮数：连续 N 轮验证集没有提升就停下，避免无效训练。
 
-### 6. 评估与导出
+训练会先跑交叉校验（见下）发现的问题针对性调增强，当前 `augment()` 包含：
+
+| 增强 | 作用 |
+|---|---|
+| 深色干扰线 1-2 条 | 模拟真实验证码的划线，修 `2` 被斜线穿过时认成 `7` 的问题 |
+| 旋转 ±6° / 平移 ±2.5px / 缩放 0.9~1.1 | 字符位置与粗细的自然差异 |
+| 亮度 / 对比度 / 高斯噪声 | 截图压缩与干扰强度变化 |
+
+不做镜像翻转——数字翻转后不再是合法数字。
+
+### 6. 交叉校验（可选但建议）
+
+```bash
+uv run python train/crosscheck.py
+```
+
+用训练好的模型反过来查训练标签，两边不一致的地方就是可疑项。也可以用来判断“伪标签到底干不干净”。
+
+### 7. 评估与导出
 
 ```bash
 E:\Miniforge3\envs\ai_base\python.exe train/evaluate.py

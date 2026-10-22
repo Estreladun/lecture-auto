@@ -17,5 +17,5 @@ train/data/labels.json
 train/data/labels_external.json
 train/out/
 
-# 训练权重只保留导出的 onnx，不提交 .pt
-train/checkpoints/*.pt
+# 训练权重与备份（运行时用的是导出后的 seu_lecture/models/captcha.onnx）
+train/checkpoints/
