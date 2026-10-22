@@ -28,8 +28,6 @@ IMAGE_SIZE = (70, 30)  # 与训练输入一致
 DIGITS = "0123456789"
 # 用集合判断：字符串形式的 `'' in DIGITS` 恒为 True，会把 blank 也算进来
 DIGIT_SET = frozenset(DIGITS)
-# 默认裕度门槛：低于它说明两个数字难以区分，放弃这次识别而不是硬猜
-DEFAULT_MIN_MARGIN = 0.10
 
 _lock = threading.Lock()
 _backend: str | None = None
@@ -232,12 +230,14 @@ def analyze(image: bytes, *, rescue: bool = False) -> tuple[str, float] | None:
         return None
 
 
-def recognize(image: bytes, *, min_margin: float = DEFAULT_MIN_MARGIN,
-              rescue: bool = False) -> str | None:
-    """识别四位数字验证码。
+def recognize(image: bytes, *, rescue: bool = False) -> str | None:
+    """识别四位数字验证码，解不出四位时返回 None。
+
+    不做置信度过滤：只要解出四位数字就交给调用方提交，让服务器判定对错。
+    本地先否决再重新取码，等于多花一次取码请求；直接提交即使错了，
+    重试也在同一条链路上，反而更快。
 
     Args:
-        min_margin: 裕度门槛，低于它视为不可靠并返回 None
         rescue: ddddocr 后端下，解不出四位时是否强行按四段均分给出结果
     """
     outcome = analyze(image, rescue=rescue)
@@ -245,9 +245,5 @@ def recognize(image: bytes, *, min_margin: float = DEFAULT_MIN_MARGIN,
         if image:
             log.warn("验证码解不出四位，换一张")
         return None
-
-    code, margin = outcome
-    if margin < min_margin:
-        log.warn(f"验证码把握不足（裕度 {margin:.3f} < {min_margin:.2f}），换一张")
-        return None
+    code, _margin = outcome
     return code

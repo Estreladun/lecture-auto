@@ -33,9 +33,9 @@ BUSY_DELAYS = (0.1, 0.2, 0.3)
 BUSY_JITTER = 0.02
 FULL_LOG_INTERVAL = 30.0
 CAPTCHA_FAIL_LIMIT = 30
-# 前几次取码要求高把握，之后放宽，避免一直卡在"识别不出来"而错过时机
+# 连续几次都解不出四位后，允许「四段均分」兜底给结果
 STRICT_CODE_ATTEMPTS = 4
-# 连续取不到任何可信验证码的上限
+# 连续取不到任何四位结果的次数上限
 CODE_MISS_LIMIT = 15
 MAX_MISSING = 100  # 连续拉不到目标讲座多少次后放弃
 
@@ -222,11 +222,11 @@ class Runner:
 
     # ── 验证码 ──────────────────────────────────────────────
 
-    def _fresh_code(self, wid: str, *, strict: bool = True) -> str | None:
+    def _fresh_code(self, wid: str, *, allow_rescue: bool = False) -> str | None:
         """取一张新验证码并识别。
 
-        strict 时只接受把握充分的结果；不 strict 时放宽裕度，并允许
-        「四段均分」兜底——抢到时机比追求完美更重要。
+        只要解出四位数字就返回，不做置信度筛选。allow_rescue 仅对 ddddocr
+        回退生效：解不出四位时是否允许「四段均分」强行给结果。
         """
         try:
             image = self.client.captcha()
@@ -237,8 +237,7 @@ class Runner:
             return None
         if not image:
             return None
-        margin = captcha.DEFAULT_MIN_MARGIN if strict else 0.0
-        return captcha.recognize(image, min_margin=margin, rescue=not strict)
+        return captcha.recognize(image, rescue=allow_rescue)
 
     def _prefetch(self, lecture: Lecture) -> None:
         try:
@@ -332,7 +331,7 @@ class Runner:
                     try:
                         if not code:
                             code = self._fresh_code(
-                                wid, strict=code_misses < STRICT_CODE_ATTEMPTS
+                                wid, allow_rescue=code_misses >= STRICT_CODE_ATTEMPTS
                             )
                         if not code:
                             # 识别不可靠：直接换一张，不浪费一次提交机会
