@@ -9,3 +9,13 @@ __pycache__/
 *.py[cod]
 .uv/
 *.egg-info/
+
+# 训练数据与中间产物（体积大，按 train/README.md 本地生成）
+train/data/images/
+train/data/external_dataset/
+train/data/labels.json
+train/data/labels_external.json
+train/out/
+
+# 训练权重只保留导出的 onnx，不提交 .pt
+train/checkpoints/*.pt
