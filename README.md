@@ -74,6 +74,8 @@ SEU_PASSWORD=' 你的密码 '
 | `SEU_ENABLE_OFFLINE` | 是否抢线下 | `true` |
 | `SEU_POLL_SECONDS` | 候补轮询间隔（秒），直接决定满员等待与失败重试的节奏 | `0.2` |
 | `SEU_BURST_ATTEMPTS` | 开放瞬间连击次数 | `5` |
+| `SEU_BUSY_DELAYS` | 服务器繁忙时的退避阶梯（秒），用完保持最后一档 | `0.5,1,2,4,8` |
+| `SEU_BUSY_JITTER` | 退避上叠加的随机抖动上限（秒），避免多讲座同时撞 | `0.5` |
 | `SEU_MAX_ATTEMPTS` | 单场最多提交次数，0 不限 | `0` |
 | `SEU_USE_PROXY` | 是否跟随系统代理 | `false` 直连 |
 | `SMTP_USERNAME` / `SMTP_PASSWORD` | 邮件通知 | 留空则不发送 |

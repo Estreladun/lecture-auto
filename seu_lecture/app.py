@@ -28,11 +28,8 @@ from .mailer import Mailer
 from .model import SHANGHAI, Lecture, select
 from .state import Store
 
-# 503 退避阶梯，之后保持最后一档；加抖动避免多客户端同时重试
-BUSY_DELAYS = (0.1, 0.2, 0.3)
-BUSY_JITTER = 0.02
-FULL_LOG_INTERVAL = 30.0
 CAPTCHA_FAIL_LIMIT = 30
+FULL_LOG_INTERVAL = 30.0
 # 连续几次都解不出四位后，允许「四段均分」兜底给结果
 STRICT_CODE_ATTEMPTS = 4
 # 连续取不到任何四位结果的次数上限
@@ -266,7 +263,10 @@ class Runner:
 
     def _rob(self, lecture: Lecture) -> None:
         wid = lecture.wid
-        log.info(f"开始抢位：{lecture}")
+        # 多个讲座是并行抢的，日志前缀用于区分是谁在说话
+        short = lecture.title[:6] + ("…" if len(lecture.title) > 6 else "")
+        tag = f"[{short}]"
+        log.info(f"{tag} 开始抢位：{lecture}")
         end_at = lecture.reserve_end
         cached = self._take_code(wid)
         submit_directly = cached is not None
@@ -322,7 +322,7 @@ class Runner:
                     if current.full:
                         if time.monotonic() - last_full_log >= FULL_LOG_INTERVAL:
                             log.info(
-                                f"名额已满（{current.seat_text}），"
+                                f"{tag} 名额已满（{current.seat_text}），"
                                 f"每 {self.settings.poll_seconds:g} 秒检查一次，等待他人取消……"
                             )
                             last_full_log = time.monotonic()
@@ -378,10 +378,11 @@ class Runner:
                         burst = 0
                         break
                     if result == BUSY:
-                        delay = BUSY_DELAYS[min(busy_attempt, len(BUSY_DELAYS) - 1)]
-                        delay += random.uniform(0, BUSY_JITTER)
+                        delays = self.settings.busy_delays
+                        delay = delays[min(busy_attempt, len(delays) - 1)]
+                        delay += random.uniform(0, self.settings.busy_jitter)
                         busy_attempt += 1
-                        log.info(f"服务器繁忙，{delay:.2f} 秒后重试")
+                        log.info(f"{tag} 服务器繁忙，{delay:.2f} 秒后重试")
                         time.sleep(delay)
                         if end_at and datetime.now(SHANGHAI) > end_at:
                             return
@@ -389,7 +390,7 @@ class Runner:
                     if result == CAPTCHA_WRONG:
                         captcha_failures += 1
                         log.warn(
-                            f"验证码不正确（第 {captcha_failures} 次），立即换一张重试"
+                            f"{tag} 验证码不正确（第 {captcha_failures} 次），立即换一张重试"
                         )
                         if captcha_failures >= CAPTCHA_FAIL_LIMIT:
                             break  # 交给外层统一收尾
@@ -406,11 +407,13 @@ class Runner:
 
                 if burst > 1:
                     burst -= 1
-                    log.info(f"提交未成功，立即重试（剩余 {burst} 次快速尝试）")
+                    log.info(f"{tag} 提交未成功，立即重试（剩余 {burst} 次快速尝试）")
                     time.sleep(0.01)
                 else:
                     burst = 0
-                    log.info(f"提交未成功，{self.settings.poll_seconds:g} 秒后继续候补")
+                    log.info(
+                        f"{tag} 提交未成功，{self.settings.poll_seconds:g} 秒后继续候补"
+                    )
                     time.sleep(self.settings.poll_seconds)
         finally:
             self._finish(lecture)

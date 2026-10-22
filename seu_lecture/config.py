@@ -68,6 +68,24 @@ def _url(key: str, label: str | None, *, required: bool = True) -> str:
     return raw
 
 
+def _floats(key: str, default: str, *, minimum: float = 0.0) -> tuple[float, ...]:
+    """逗号分隔的浮点序列，例如 "0.5,1,2,4"。"""
+    raw = _text(key) or default
+    parts = [part.strip() for part in raw.replace(" ", ",").split(",") if part.strip()]
+    values: list[float] = []
+    for part in parts:
+        try:
+            value = float(part)
+        except ValueError:
+            raise ConfigError(f"{key} 里的 {part!r} 不是数字") from None
+        if value < minimum:
+            raise ConfigError(f"{key} 的每一项不能小于 {minimum:g}，当前有 {value:g}")
+        values.append(value)
+    if not values:
+        raise ConfigError(f"{key} 至少要有一个数值")
+    return tuple(values)
+
+
 def _list(key: str) -> tuple[str, ...]:
     """JSON 数组；也容忍逗号分隔写法。"""
     raw = _text(key)
@@ -148,6 +166,8 @@ class Settings:
     offline: bool
     poll_seconds: float
     burst_attempts: int
+    busy_delays: tuple[float, ...]
+    busy_jitter: float
     keepalive_seconds: float
     prefetch_seconds: float
     max_attempts: int
@@ -214,6 +234,8 @@ class Settings:
             offline=offline,
             poll_seconds=_number("SEU_POLL_SECONDS", 0.2, minimum=0.05),
             burst_attempts=_number("SEU_BURST_ATTEMPTS", 5, minimum=1, cast=int),
+            busy_delays=_floats("SEU_BUSY_DELAYS", "0.5,1,2,4,8"),
+            busy_jitter=_number("SEU_BUSY_JITTER", 0.5, minimum=0),
             keepalive_seconds=_number("SEU_KEEPALIVE_SECONDS", 30, minimum=5),
             prefetch_seconds=_number("SEU_PREFETCH_SECONDS", 2, minimum=0),
             max_attempts=_number("SEU_MAX_ATTEMPTS", 0, minimum=0, cast=int),
@@ -241,6 +263,7 @@ class Settings:
             f"校区 {show(self.campuses)}\n"
             f"节奏 轮询 {self.poll_seconds:g}s（约 {rate:.1f} 次/秒）"
             f" / 连击 {self.burst_attempts} 次"
+            f" / 繁忙退避 {self.busy_delays[0]:g}→{self.busy_delays[-1]:g}s"
             f" / 预取 {self.prefetch_seconds:g}s"
             f" / 保活 {self.keepalive_seconds:g}s\n"
             f"代理 {'跟随系统' if self.use_proxy else '直连'}\n"
