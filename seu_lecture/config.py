@@ -173,29 +173,29 @@ class Settings:
             # 不覆盖已存在的进程环境变量，保持「进程变量优先」。
             load_dotenv(path, override=False)
 
-        username = _text("LEC_USERNAME")
+        username = _text("SEU_USERNAME")
         # 密码不做 strip：首尾空格可能是密码的一部分，用单引号写入时必须原样保留
-        password = os.environ.get("LEC_PASSWORD", "")
+        password = os.environ.get("SEU_PASSWORD", "")
         if require_credentials and (not username or not password.strip()):
             raise ConfigError(
                 f"未配置账号或密码。请复制 .env.example 为 .env 并填写 "
-                f"LEC_USERNAME / LEC_PASSWORD（期望路径：{path}）"
+                f"SEU_USERNAME / SEU_PASSWORD（期望路径：{path}）"
             )
 
-        entry = _url("LEC_ENTRY_URL", "教务系统入口地址")
-        cas_base = _url("LEC_CAS_BASE", "统一认证接口前缀")
+        entry = _url("SEU_ENTRY_URL", "教务系统入口地址")
+        cas_base = _url("SEU_CAS_BASE", "统一认证接口前缀")
         if not cas_base.endswith("/"):
             cas_base += "/"
-        gateway = _url("LEC_GATEWAY", None, required=False).rstrip("/")
-        gateway_ip = _text("LEC_GATEWAY_IP")
-        api_bases = tuple(item.rstrip("/") for item in _list("LEC_API_BASES"))
+        gateway = _url("SEU_GATEWAY", None, required=False).rstrip("/")
+        gateway_ip = _text("SEU_GATEWAY_IP")
+        api_bases = tuple(item.rstrip("/") for item in _list("SEU_API_BASES"))
 
-        online = _flag("LEC_ENABLE_ONLINE", True)
-        offline = _flag("LEC_ENABLE_OFFLINE", True)
+        online = _flag("SEU_ENABLE_ONLINE", True)
+        offline = _flag("SEU_ENABLE_OFFLINE", True)
         if not online and not offline:
-            raise ConfigError("LEC_ENABLE_ONLINE 与 LEC_ENABLE_OFFLINE 至少需要一个为 true")
+            raise ConfigError("SEU_ENABLE_ONLINE 与 SEU_ENABLE_OFFLINE 至少需要一个为 true")
 
-        state_dir = Path(_text("LEC_STATE_DIR", "state")).expanduser()
+        state_dir = Path(_text("SEU_STATE_DIR", "state")).expanduser()
         if not state_dir.is_absolute():
             state_dir = PROJECT_ROOT / state_dir
 
@@ -207,20 +207,20 @@ class Settings:
             gateway=gateway,
             gateway_ip=gateway_ip,
             api_bases=api_bases,
-            keywords=_list("LEC_TARGET_KEYWORDS"),
-            categories=_list("LEC_REQUIRED_CATEGORIES"),
-            campuses=_list("LEC_PREFERRED_CAMPUS"),
+            keywords=_list("SEU_TARGET_KEYWORDS"),
+            categories=_list("SEU_REQUIRED_CATEGORIES"),
+            campuses=_list("SEU_PREFERRED_CAMPUS"),
             online=online,
             offline=offline,
-            poll_seconds=_number("LEC_POLL_SECONDS", 0.2, minimum=0.05),
-            burst_attempts=_number("LEC_BURST_ATTEMPTS", 5, minimum=1, cast=int),
-            keepalive_seconds=_number("LEC_KEEPALIVE_SECONDS", 30, minimum=5),
-            prefetch_seconds=_number("LEC_PREFETCH_SECONDS", 2, minimum=0),
-            max_attempts=_number("LEC_MAX_ATTEMPTS", 0, minimum=0, cast=int),
+            poll_seconds=_number("SEU_POLL_SECONDS", 0.2, minimum=0.05),
+            burst_attempts=_number("SEU_BURST_ATTEMPTS", 5, minimum=1, cast=int),
+            keepalive_seconds=_number("SEU_KEEPALIVE_SECONDS", 30, minimum=5),
+            prefetch_seconds=_number("SEU_PREFETCH_SECONDS", 2, minimum=0),
+            max_attempts=_number("SEU_MAX_ATTEMPTS", 0, minimum=0, cast=int),
             state_dir=state_dir,
             smtp=Smtp.load(),
-            report_hour=_number("LEC_MAIL_REPORT_HOUR", 20, minimum=0, cast=int),
-            use_proxy=_flag("LEC_USE_PROXY", False),
+            report_hour=_number("SEU_MAIL_REPORT_HOUR", 20, minimum=0, cast=int),
+            use_proxy=_flag("SEU_USE_PROXY", False),
         )
 
     def describe(self) -> str:

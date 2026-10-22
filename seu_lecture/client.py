@@ -270,7 +270,7 @@ class LectureClient:
         self.ep = endpoints
         self.session = requests.Session()
         self.session.headers.update({"User-Agent": UA, "Accept-Language": "zh-CN,zh;q=0.9"})
-        # 校园系统大多公网可达；默认绕开系统代理，避免 Clash/V2Ray 之类把校园域名打到 502
+        # 学校系统大多公网可达；默认绕开系统代理，避免 Clash/V2Ray 之类把校园域名打到 502
         self.session.trust_env = use_proxy
         adapter = requests.adapters.HTTPAdapter(pool_connections=16, pool_maxsize=16)
         self.session.mount("https://", adapter)
@@ -281,7 +281,7 @@ class LectureClient:
                 try:
                     gateway_adapter = GatewayIPAdapter(endpoints.gateway_ip, gateway_host)
                 except ValueError:
-                    log.warn(f"LEC_GATEWAY_IP 不是合法 IP（{endpoints.gateway_ip}），改为常规 DNS 解析")
+                    log.warn(f"SEU_GATEWAY_IP 不是合法 IP（{endpoints.gateway_ip}），改为常规 DNS 解析")
                     gateway_adapter = requests.adapters.HTTPAdapter(
                         pool_connections=16, pool_maxsize=16
                     )
@@ -314,7 +314,7 @@ class LectureClient:
             return self.session.request(method, url, allow_redirects=False, **kwargs)
         except requests.exceptions.ProxyError:
             raise ApiError(
-                "系统代理拦下了请求。请在 .env 设置 LEC_USE_PROXY=false，或关闭代理软件"
+                "系统代理拦下了请求。请在 .env 设置 SEU_USE_PROXY=false，或关闭代理软件"
             ) from None
         except requests.exceptions.SSLError as exc:
             raise ApiError(f"TLS 握手失败（可能被代理或防火墙干扰）：{exc}") from None

@@ -14,14 +14,14 @@ import argparse
 import json
 import sys
 
-from lecture_auto import __version__, captcha, log
-from lecture_auto.app import Runner
-from lecture_auto.client import ApiError, LectureClient, LoginError, SessionExpired
-from lecture_auto.config import ConfigError, Settings
-from lecture_auto.mailer import Mailer
-from lecture_auto.mailer import build as build_mailer
-from lecture_auto.model import Lecture, select
-from lecture_auto.state import StateError, Store
+from seu_lecture import __version__, captcha, log
+from seu_lecture.app import Runner
+from seu_lecture.client import ApiError, LectureClient, LoginError, SessionExpired
+from seu_lecture.config import ConfigError, Settings
+from seu_lecture.mailer import Mailer
+from seu_lecture.mailer import build as build_mailer
+from seu_lecture.model import Lecture, select
+from seu_lecture.state import StateError, Store
 
 
 def _prepare(settings: Settings, *, lock: bool) -> tuple[Store, Mailer | None]:
@@ -32,7 +32,7 @@ def _prepare(settings: Settings, *, lock: bool) -> tuple[Store, Mailer | None]:
 
 
 def cmd_check(settings: Settings) -> int:
-    print(f"讲座自动预约 v{__version__} 自检\n")
+    print(f"东南大学讲座预约 v{__version__} 自检\n")
     log.info("配置摘要：\n" + settings.describe())
     client = LectureClient(
         settings.username, settings.password, settings.endpoints,
@@ -132,8 +132,8 @@ def cmd_run(settings: Settings, *, dry_run: bool) -> int:
 
 def main(argv: list[str] | None = None) -> int:
     parser = argparse.ArgumentParser(
-        prog="lecture-auto",
-        description="校园讲座自动预约（账号密码登录，无需手动 Cookie）",
+        prog="seu-lecture",
+        description="东南大学讲座自动预约（账号密码登录，无需手动 Cookie）",
     )
     group = parser.add_mutually_exclusive_group()
     group.add_argument("--check", action="store_true", help="只读自检，不提交预约")

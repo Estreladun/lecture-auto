@@ -38,7 +38,7 @@ def _now() -> str:
 
 
 class Store:
-    """一个账号一份状态，保存在 LEC_STATE_DIR 下。"""
+    """一个账号一份状态，保存在 SEU_STATE_DIR 下。"""
 
     def __init__(self, directory: Path, username: str, *, lock: bool = True) -> None:
         directory.mkdir(parents=True, exist_ok=True)

@@ -36,7 +36,7 @@ class Mailer:
         message = EmailMessage()
         message["From"] = self.smtp.sender
         message["To"] = self.smtp.recipient
-        message["Subject"] = f"讲座自动预约：{title}"
+        message["Subject"] = f"东南大学讲座预约：{title}"
 
         stamp = datetime.now(SHANGHAI).strftime("%Y-%m-%d %H:%M:%S")
         text = [explain]
