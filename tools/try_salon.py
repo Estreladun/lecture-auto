@@ -44,7 +44,7 @@ RESULT_TEXT = {
 }
 
 
-def collect(rows: list[dict], wid: str | None) -> list[Lecture]:
+def collect(rows: list[dict], wid: str | None, client: LectureClient) -> list[Lecture]:
     found: list[Lecture] = []
     seen: set[str] = set()
     for row in rows:
@@ -53,12 +53,20 @@ def collect(rows: list[dict], wid: str | None) -> list[Lecture]:
             continue
         seen.add(lecture.wid)
         if wid:
-            if lecture.wid == wid:
-                found.append(lecture)
-            continue
-        text = f"{lecture.category} {lecture.title}"
-        if any(hint in text for hint in ACTIVITY_HINTS):
-            found.append(lecture)
+            if lecture.wid != wid:
+                continue
+        else:
+            text = f"{lecture.category} {lecture.title}"
+            if not any(hint in text for hint in ACTIVITY_HINTS):
+                continue
+        # 列表不带已约人数，补一次详情，好让余量显示成 x/y 而不是「未知」
+        if row.get("YYRS") in (None, ""):
+            extra = client.detail(lecture.wid)
+            if extra:
+                merged = Lecture.parse({**row, **extra})
+                if merged:
+                    lecture = merged
+        found.append(lecture)
     return found
 
 
@@ -95,10 +103,16 @@ def main() -> int:
 
     print("登录 …")
     client.login()
-    client.probe()
+    try:
+        client.probe()
+    except SessionExpired:
+        # 同一账号频繁登录会被踢下线，重登一次即可
+        print("会话失效，重新登录 …")
+        client.login()
+        client.probe()
     rows = client.list_lectures()
 
-    targets = collect(rows, args.wid)
+    targets = collect(rows, args.wid, client)
     if not targets:
         print(f"没有找到沙龙类活动（线索：{'、'.join(ACTIVITY_HINTS)}）")
         print(f"当前列表共 {len(rows)} 条，可用 --wid 指定具体某一场")

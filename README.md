@@ -129,7 +129,26 @@ uv run main.py --dry-run
 uv run main.py --status
 ```
 
-## 五、目录说明
+## 五、测试沙龙类活动
+
+`--check` 和正式运行都只处理讲座，**沙龙、购票、工作坊这类活动会被筛选条件跳过**（常见原因是地点不在你设的校区，比如「江苏大剧院」不符合「九龙湖校区」）。
+
+想验证这类活动能不能走通，用独立脚本：
+
+```bash
+uv run python tools/try_salon.py            # 列出来，交互确认后再提交
+uv run python tools/try_salon.py --dry      # 只取码识别，不提交
+uv run python tools/try_salon.py --yes      # 跳过确认直接提交
+uv run python tools/try_salon.py --wid <WID>  # 指定某一场
+```
+
+脚本绕过 `select()` 的筛选，按「沙龙 / 购票 / 工作坊 / 开放日」匹配分类或标题（也接受 `--wid` 直指）。它不修改主流程，**正式运行的行为完全不受影响**。
+
+> **注意：`--dry` 之外会真的提交。** 跑通后活动就真的约上了，不想要得自己去 ehall 取消——代码里只有提交接口，没有取消接口。
+
+这一步不影响日常使用，纯粹是链路验证工具。
+
+## 六、目录说明
 
 ```
 main.py               命令行入口
@@ -143,10 +162,12 @@ seu_lecture/
   mailer.py           邮件通知
   log.py              日志
   models/captcha.onnx 验证码识别模型（946KB）
+tools/
+  try_salon.py        沙龙类活动的手动预约脚本（调试用，不参与正式运行）
 state/                运行时生成：state.json、logs/、run.lock
 ```
 
-## 六、常见问题
+## 七、常见问题
 
 **提示「同一账号已有实例在运行」**
 同一账号只能跑一个实例。关掉其他窗口，或删除 `state/run.lock`。
@@ -189,7 +210,7 @@ state/                运行时生成：state.json、logs/、run.lock
 
 训练代码与数据集不在本仓库内。要换风格或重训，需要自己准备数据。
 
-## 七、注意
+## 八、注意
 
 - 仅供本人正常预约使用，请遵守学校规定，不要用于代抢、分发或商业用途。
 - `.env` 含一卡通号与密码，已在 `.gitignore` 中排除，不要提交到任何仓库。
