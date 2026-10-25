@@ -654,6 +654,37 @@ class LectureClient:
         assert self.profile is not None
         return self._list_with(self.profile)
 
+    def detail(self, wid: str) -> dict[str, Any] | None:
+        """查单场详情，补出列表里缺失的实时余量（YYRS）。
+
+        列表接口只给容量 HDZRS，不给已约人数，所以判断满员必须靠这个接口。
+        参数是 wid + type=1，type 目前只需固定传 1。
+        失败一律返回 None，让调用方退回列表数据，不中断抢位。
+        """
+        if self.profile is None:
+            return None
+        base = self.profile.base
+        suffix = (
+            "/modules/hdyy/getActivityDetail.do"
+            if "modules" in self.profile.name
+            else "/hdyy/getActivityDetail.do"
+        )
+        try:
+            response = self._request("GET", base + suffix, params={"wid": wid, "type": "1"})
+        except requests.RequestException:
+            return None
+        if response.status_code != 200:
+            return None
+        try:
+            payload = response.json()
+        except ValueError:
+            return None
+        datas = payload.get("datas") or {}
+        block = datas.get("hdxq") if isinstance(datas, dict) else None
+        if isinstance(block, dict):
+            return block
+        return None
+
     def captcha(self) -> bytes | None:
         """获取验证码图片；失败返回 None。"""
         if self.profile is None:

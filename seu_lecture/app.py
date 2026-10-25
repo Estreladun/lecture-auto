@@ -264,10 +264,17 @@ class Runner:
     # ── 抢位主循环 ──────────────────────────────────────────
 
     def _current(self, wid: str) -> Lecture | None:
+        """拉列表定位目标；列表没有已约人数时，用详情接口补上。"""
         rows = self.client.list_lectures()
         for row in rows:
-            if (row.get("HD_WID") or row.get("WID")) == wid:
-                return Lecture.parse(row)
+            if (row.get("HD_WID") or row.get("WID")) != wid:
+                continue
+            if row.get("YYRS") in (None, ""):
+                # 列表只给容量，判断满员必须靠详情的 YYRS
+                extra = self.client.detail(wid)
+                if extra:
+                    row = {**row, **extra}
+            return Lecture.parse(row)
         return None
 
     def _rob(self, lecture: Lecture) -> None:
