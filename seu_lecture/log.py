@@ -24,7 +24,8 @@ def setup(directory: Path | None) -> None:
 
 def log(message: str, *, level: str = "INFO") -> None:
     now = datetime.now(SHANGHAI)
-    line = f"[{now:%H:%M:%S}] {level:<5} {message}"
+    # 带日期：一次运行常跨好几天（讲座分散在不同日子），只给时分秒会看不出是哪天
+    line = f"[{now:%Y-%m-%d %H:%M:%S}] {level:<5} {message}"
     with _lock:
         print(line, flush=True)
         if _log_dir is None:

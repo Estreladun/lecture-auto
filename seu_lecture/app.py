@@ -213,17 +213,17 @@ class Runner:
                 if prefetch_at > now:
                     scheduler.add_job(self._prefetch, "date", run_date=prefetch_at,
                                       args=[lecture], id=f"prefetch-{lecture.wid}")
-                    log.info(f"将于 {prefetch_at:%H:%M:%S} 预取验证码")
+                    log.info(f"将于 {prefetch_at:%m-%d %H:%M:%S} 预取验证码")
                 run_at = lecture.reserve_start - shift + timedelta(milliseconds=index * 50)
                 if run_at < now:
                     run_at = now
                 if abs(offset) >= 0.5:
                     log.info(
-                        f"将于本地 {run_at:%H:%M:%S} 开始抢位"
-                        f"（服务器 {lecture.reserve_start:%H:%M:%S}）：{lecture.title}"
+                        f"将于本地 {run_at:%m-%d %H:%M:%S} 开始抢位"
+                        f"（服务器 {lecture.reserve_start:%m-%d %H:%M:%S}）：{lecture.title}"
                     )
                 else:
-                    log.info(f"将于 {run_at:%H:%M:%S} 开始抢位：{lecture.title}")
+                    log.info(f"将于 {run_at:%m-%d %H:%M:%S} 开始抢位：{lecture.title}")
             else:
                 run_at = now + timedelta(milliseconds=index * 50)
                 log.info(f"讲座已开放，立即开始抢位/候补：{lecture.title}")
