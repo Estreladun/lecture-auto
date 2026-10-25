@@ -17,6 +17,7 @@ from .client import (
     EXPIRED,
     FAILED,
     FULL,
+    NOT_OPEN,
     SUCCESS,
     ApiError,
     LectureClient,
@@ -30,6 +31,9 @@ from .state import Store
 
 CAPTCHA_FAIL_LIMIT = 30
 FULL_LOG_INTERVAL = 30.0
+# 服务器实际开放时刻常比列表标注的晚几百毫秒到几秒。
+# 这时返回「尚未开放」，必须密集探测——空等一轮的机会成本太高。
+NOT_OPEN_DELAYS = (0.2, 0.2, 0.3, 0.3, 0.5, 0.7, 1.0)
 # 连续几次都解不出四位后，允许「四段均分」兜底给结果
 STRICT_CODE_ATTEMPTS = 4
 # 连续取不到任何四位结果的次数上限
@@ -274,6 +278,7 @@ class Runner:
         last_full_log = 0.0
         captcha_failures = 0
         code_misses = 0
+        not_open = 0
         missing = 0
         attempts = 0
 
@@ -377,6 +382,21 @@ class Runner:
                     if result == FULL:
                         burst = 0
                         break
+                    if result == NOT_OPEN:
+                        # 不跳出内层：跳出会回到外层刷新列表，白白浪费一个来回。
+                        # 这里只重新取码+提交，把开放瞬间的每一次机会都抓住。
+                        not_open += 1
+                        attempts -= 1  # 「尚未开放」不是失败，别让它吃掉重试额度
+                        delay = NOT_OPEN_DELAYS[min(not_open - 1, len(NOT_OPEN_DELAYS) - 1)]
+                        if not_open <= 3 or not_open % 20 == 0:
+                            log.info(
+                                f"{tag} 服务器尚未开放预约，{delay:.2f} 秒后再试"
+                                f"（第 {not_open} 次）"
+                            )
+                        time.sleep(delay)
+                        if end_at and datetime.now(SHANGHAI) > end_at:
+                            return
+                        continue
                     if result == BUSY:
                         delays = self.settings.busy_delays
                         delay = delays[min(busy_attempt, len(delays) - 1)]

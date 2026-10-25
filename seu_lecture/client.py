@@ -72,6 +72,7 @@ DUPLICATE = "duplicate"
 FULL = "full"
 BUSY = "busy"
 EXPIRED = "expired"
+NOT_OPEN = "not_open"
 CAPTCHA_WRONG = "captcha"
 FAILED = "failed"
 
@@ -79,6 +80,8 @@ _FULL_WORDS = ("已满", "名额已满", "人数已满", "已达上限", "预约
 _BUSY_WORDS = ("繁忙", "稍后", "请重试", "过于频繁")
 _DUP_WORDS = ("已预约", "不能重复", "重复预约", "已经预约")
 _CAPTCHA_WORDS = ("验证码", "vcode")
+# 服务器时间往往比列表标注的开放时刻晚一点，这时会返回这个
+_NOT_OPEN_WORDS = ("尚未开放", "未开放", "未开始", "未到预约", "还没开始")
 
 
 class LoginError(Exception):
@@ -715,6 +718,8 @@ class LectureClient:
             return DUPLICATE
         if any(word in lowered for word in _FULL_WORDS):
             return FULL
+        if any(word in lowered for word in _NOT_OPEN_WORDS):
+            return NOT_OPEN
         if any(word in lowered for word in _CAPTCHA_WORDS):
             log.info(f"提交被判定验证码错误：{lowered[:120]}")
             return CAPTCHA_WRONG
