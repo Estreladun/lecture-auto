@@ -15,7 +15,7 @@ import json
 import sys
 
 from seu_lecture import __version__, captcha, log
-from seu_lecture.app import Runner
+from seu_lecture.app import Runner, clock_offset
 from seu_lecture.client import ApiError, LectureClient, LoginError, SessionExpired
 from seu_lecture.config import ConfigError, Settings
 from seu_lecture.mailer import Mailer
@@ -39,21 +39,21 @@ def cmd_check(settings: Settings) -> int:
         use_proxy=settings.use_proxy,
     )
 
-    print("\n[1/4] 登录统一身份认证 …")
+    print("\n[1/5] 登录统一身份认证 …")
     try:
         client.login()
     except LoginError as exc:
         log.error(f"登录失败：{exc}")
         return 1
 
-    print("\n[2/4] 探测讲座接口 …")
+    print("\n[2/5] 探测讲座接口 …")
     try:
         profile = client.probe()
     except (ApiError, SessionExpired) as exc:
         log.error(f"接口不可用：{exc}")
         return 1
 
-    print("\n[3/4] 拉取讲座列表 …")
+    print("\n[3/5] 拉取讲座列表 …")
     try:
         rows = client.list_lectures()
     except Exception as exc:
@@ -73,7 +73,14 @@ def cmd_check(settings: Settings) -> int:
             log.info(f"  · {lecture.title}｜{lecture.category or '无分类'}｜"
                      f"{lecture.seat_text}｜已约={lecture.reserved}")
 
-    print("\n[4/4] 验证码识别 …")
+    print("\n[4/5] 校准服务器时钟 …")
+    anchor = (rows[0].get("HD_WID") or rows[0].get("WID")) if rows else None
+    if anchor:
+        clock_offset(client, anchor)
+    else:
+        log.info("没有可用讲座，跳过时钟校准")
+
+    print("\n[5/5] 验证码识别 …")
     captcha.warmup()
     try:
         image = client.captcha()

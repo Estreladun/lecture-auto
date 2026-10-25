@@ -26,16 +26,11 @@ from .client import (
 )
 from .config import Settings
 from .mailer import Mailer
-from .model import SHANGHAI, Lecture, select
+from .model import SHANGHAI, Lecture, parse_time, select
 from .state import Store
 
 CAPTCHA_FAIL_LIMIT = 30
 FULL_LOG_INTERVAL = 30.0
-# 服务器判定满员后的冷却：先 5 秒，没抢到就翻倍，最多 60 秒。
-# 列表的余量字段经常是空的（YYRS 缺失），判断不了是否满员，
-# 只能靠服务器返回结果来感知，冷却避免对着满员场次狂打。
-FULL_BASE_WAIT = 5.0
-FULL_MAX_WAIT = 30.0
 # 服务器实际开放时刻常比列表标注的晚几百毫秒到几秒。
 # 这时返回「尚未开放」，必须密集探测——空等一轮的机会成本太高。
 NOT_OPEN_DELAYS = (0.2, 0.2, 0.3, 0.3, 0.5, 0.7, 1.0)
@@ -44,6 +39,42 @@ STRICT_CODE_ATTEMPTS = 4
 # 连续取不到任何四位结果的次数上限
 CODE_MISS_LIMIT = 15
 MAX_MISSING = 100  # 连续拉不到目标讲座多少次后放弃
+
+
+def clock_offset(client, wid: str) -> float:
+    """测服务器时钟相对本地的偏差（秒），正数表示服务器快。
+
+    学校服务器和本机常差几秒——实测东大慢 2.4 秒，直接按本地时间
+    到点提交必然撞上「尚未开放预约」。详情接口返回的 NOW 可用来校准。
+
+    做法：取三次样本的中位数，每次用请求往返的中点作为本地基准，
+    抵消网络延迟。NOW 只有秒级精度，所以残差在 ±0.5 秒内。
+    """
+    samples: list[float] = []
+    for _ in range(3):
+        start = datetime.now(SHANGHAI)
+        detail = client.detail(wid)
+        end = datetime.now(SHANGHAI)
+        if detail:
+            server = parse_time(detail.get("NOW"))
+            if server:
+                midpoint = start + (end - start) / 2
+                samples.append((server - midpoint).total_seconds())
+        time.sleep(0.15)
+    if not samples:
+        return 0.0
+
+    samples.sort()
+    offset = samples[len(samples) // 2]
+    if abs(offset) > 120:
+        log.warn(f"服务器时钟偏差 {offset:+.1f} 秒，数值异常，按本地时间处理")
+        return 0.0
+    if abs(offset) >= 0.5:
+        direction = "快" if offset > 0 else "慢"
+        log.info(f"服务器时钟比本地{direction} {abs(offset):.1f} 秒，已按服务器时间对齐")
+    else:
+        log.info("服务器时钟与本地一致")
+    return offset
 
 
 class Runner:
@@ -158,6 +189,7 @@ class Runner:
 
     def _schedule(self, lectures: list[Lecture]) -> int:
         now = datetime.now(SHANGHAI)
+        offset = clock_offset(self.client, lectures[0].wid) if lectures else 0.0
         scheduler = BlockingScheduler(
             timezone="Asia/Shanghai",
             job_defaults={"coalesce": True, "max_instances": 5, "misfire_grace_time": 30},
@@ -173,15 +205,25 @@ class Runner:
 
         for index, lecture in enumerate(lectures):
             if lecture.reserve_start and lecture.reserve_start > now:
-                prefetch_at = lecture.reserve_start - timedelta(
+                # 所有时刻都换算到本地时间：服务器慢 offset 秒，就晚 offset 秒动手
+                shift = timedelta(seconds=offset)
+                prefetch_at = lecture.reserve_start - shift - timedelta(
                     seconds=self.settings.prefetch_seconds
                 )
                 if prefetch_at > now:
                     scheduler.add_job(self._prefetch, "date", run_date=prefetch_at,
                                       args=[lecture], id=f"prefetch-{lecture.wid}")
                     log.info(f"将于 {prefetch_at:%H:%M:%S} 预取验证码")
-                run_at = lecture.reserve_start + timedelta(milliseconds=index * 50)
-                log.info(f"将于 {run_at:%H:%M:%S} 开始抢位：{lecture.title}")
+                run_at = lecture.reserve_start - shift + timedelta(milliseconds=index * 50)
+                if run_at < now:
+                    run_at = now
+                if abs(offset) >= 0.5:
+                    log.info(
+                        f"将于本地 {run_at:%H:%M:%S} 开始抢位"
+                        f"（服务器 {lecture.reserve_start:%H:%M:%S}）：{lecture.title}"
+                    )
+                else:
+                    log.info(f"将于 {run_at:%H:%M:%S} 开始抢位：{lecture.title}")
             else:
                 run_at = now + timedelta(milliseconds=index * 50)
                 log.info(f"讲座已开放，立即开始抢位/候补：{lecture.title}")
@@ -293,7 +335,6 @@ class Runner:
         not_open = 0
         missing = 0
         attempts = 0
-        full_wait = FULL_BASE_WAIT
         full_until = 0.0
 
         try:
@@ -400,12 +441,10 @@ class Runner:
                         break
                     if result == FULL:
                         burst = 0
-                        full_until = time.monotonic() + full_wait
+                        full_until = time.monotonic() + self.settings.full_watch
                         log.info(
-                            f"{tag} 名额已满，{full_wait:g} 秒后再探"
-                            f"（期间只等待，不提交）"
+                            f"{tag} 名额已满，{self.settings.full_watch:g} 秒后复查余量"
                         )
-                        full_wait = min(full_wait * 2, FULL_MAX_WAIT)
                         break
                     if result == NOT_OPEN:
                         # 不跳出内层：跳出会回到外层刷新列表，白白浪费一个来回。

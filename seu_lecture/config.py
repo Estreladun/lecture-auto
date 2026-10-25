@@ -168,6 +168,7 @@ class Settings:
     burst_attempts: int
     busy_delays: tuple[float, ...]
     busy_jitter: float
+    full_watch: float
     keepalive_seconds: float
     prefetch_seconds: float
     max_attempts: int
@@ -236,6 +237,7 @@ class Settings:
             burst_attempts=_number("SEU_BURST_ATTEMPTS", 5, minimum=1, cast=int),
             busy_delays=_floats("SEU_BUSY_DELAYS", "0.5,1,2,4,8"),
             busy_jitter=_number("SEU_BUSY_JITTER", 0.5, minimum=0),
+            full_watch=_number("SEU_FULL_WATCH", 8, minimum=2),
             keepalive_seconds=_number("SEU_KEEPALIVE_SECONDS", 30, minimum=5),
             prefetch_seconds=_number("SEU_PREFETCH_SECONDS", 2, minimum=0),
             max_attempts=_number("SEU_MAX_ATTEMPTS", 0, minimum=0, cast=int),
@@ -264,6 +266,7 @@ class Settings:
             f"节奏 轮询 {self.poll_seconds:g}s（约 {rate:.1f} 次/秒）"
             f" / 连击 {self.burst_attempts} 次"
             f" / 繁忙退避 {self.busy_delays[0]:g}→{self.busy_delays[-1]:g}s"
+            f" / 满员复查 {self.full_watch:g}s"
             f" / 预取 {self.prefetch_seconds:g}s"
             f" / 保活 {self.keepalive_seconds:g}s\n"
             f"代理 {'跟随系统' if self.use_proxy else '直连'}\n"
