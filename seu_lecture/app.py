@@ -31,6 +31,11 @@ from .state import Store
 
 CAPTCHA_FAIL_LIMIT = 30
 FULL_LOG_INTERVAL = 30.0
+# 服务器判定满员后的冷却：先 5 秒，没抢到就翻倍，最多 60 秒。
+# 列表的余量字段经常是空的（YYRS 缺失），判断不了是否满员，
+# 只能靠服务器返回结果来感知，冷却避免对着满员场次狂打。
+FULL_BASE_WAIT = 5.0
+FULL_MAX_WAIT = 30.0
 # 服务器实际开放时刻常比列表标注的晚几百毫秒到几秒。
 # 这时返回「尚未开放」，必须密集探测——空等一轮的机会成本太高。
 NOT_OPEN_DELAYS = (0.2, 0.2, 0.3, 0.3, 0.5, 0.7, 1.0)
@@ -281,6 +286,8 @@ class Runner:
         not_open = 0
         missing = 0
         attempts = 0
+        full_wait = FULL_BASE_WAIT
+        full_until = 0.0
 
         try:
             while True:
@@ -288,6 +295,11 @@ class Runner:
                 if end_at and now > end_at:
                     log.info(f"预约已截止（{end_at:%m-%d %H:%M}），放弃：{lecture.title}")
                     return
+
+                # 满员冷却期：只等，不取码也不提交，避免对着满员场次空打
+                if time.monotonic() < full_until:
+                    time.sleep(self.settings.poll_seconds)
+                    continue
 
                 if submit_directly:
                     current = lecture
@@ -381,6 +393,12 @@ class Runner:
                         break
                     if result == FULL:
                         burst = 0
+                        full_until = time.monotonic() + full_wait
+                        log.info(
+                            f"{tag} 名额已满，{full_wait:g} 秒后再探"
+                            f"（期间只等待，不提交）"
+                        )
+                        full_wait = min(full_wait * 2, FULL_MAX_WAIT)
                         break
                     if result == NOT_OPEN:
                         # 不跳出内层：跳出会回到外层刷新列表，白白浪费一个来回。
