@@ -138,7 +138,9 @@ def matches(lecture: Lecture, *, keywords: tuple[str, ...], categories: tuple[st
         return False
     if categories and not any(word in lecture.category for word in categories):
         return False
-    if campuses:
+    if campuses and not lecture.online:
+        # 校区只约束线下讲座。线上讲座的地点字段是「腾讯会议」这类字样，
+        # 用它去匹配校区没有意义——线上在哪都能听，不该被校区过滤掉。
         # 拼接后按子串匹配：写「九龙湖」也能命中「九龙湖校区」。
         # 注意不能写成 `word in (campus, location)`，那是元组元素的全等比较。
         place = f"{lecture.campus or ''} {lecture.location or ''}"

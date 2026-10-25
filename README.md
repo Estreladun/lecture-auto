@@ -68,7 +68,7 @@ SEU_PASSWORD=' 你的密码 '
 | `SEU_GATEWAY_IP` | 网关备用 IP（域名解析不到时用） | `121.249.14.2` |
 | `SEU_API_BASES` | 额外候选接口基址，逗号分隔 | 已填东大新版应用 |
 | `SEU_TARGET_KEYWORDS` | 标题关键词，任一命中即抢 | `'["法律"]'` |
-| `SEU_PREFERRED_CAMPUS` | 只抢指定校区（子串匹配，写「九龙湖」也能命中「九龙湖校区」） | `'["九龙湖校区"]'` |
+| `SEU_PREFERRED_CAMPUS` | 只抢指定校区，**仅对线下生效**（线上在哪都能听）。子串匹配，写「九龙湖」也能命中「九龙湖校区」 | `'["九龙湖校区"]'` |
 | `SEU_REQUIRED_CATEGORIES` | 按讲座分类过滤 | `'["人文与科学素养系列讲座_法律"]'` |
 | `SEU_ENABLE_ONLINE` | 是否抢线上 | `true` |
 | `SEU_ENABLE_OFFLINE` | 是否抢线下 | `true` |
