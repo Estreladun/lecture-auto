@@ -5,7 +5,7 @@ from __future__ import annotations
 import json
 import os
 import re
-from dataclasses import dataclass
+from dataclasses import dataclass, replace
 from pathlib import Path
 from typing import Any
 from urllib.parse import urlsplit
@@ -246,6 +246,48 @@ class Settings:
             report_hour=_number("SEU_MAIL_REPORT_HOUR", 20, minimum=0, cast=int),
             use_proxy=_flag("SEU_USE_PROXY", False),
         )
+
+    @classmethod
+    def load_all(cls, env_path: Path | None = None, *,
+                 require_credentials: bool = True) -> list["Settings"]:
+        """加载全部账号，每项是一个独立的 Settings。
+
+        没设 SEU_ACCOUNTS 时返回单个实例，行为与原来完全一致。
+        设了则按 JSON 数组逐个生成，其余配置（关键词、校区、节奏等）全部继承全局。
+
+        每个账号的 state_dir 由调用方再分子目录，避免 state.json 互相覆盖。
+        """
+        base = cls.load(env_path, require_credentials=False)
+        raw = _text("SEU_ACCOUNTS")
+        if not raw:
+            if require_credentials and (not base.username or not base.password.strip()):
+                raise ConfigError(
+                    "未配置账号。请在 .env 填 SEU_USERNAME / SEU_PASSWORD，"
+                    "或用 SEU_ACCOUNTS 配多个账号"
+                )
+            return [base]
+
+        try:
+            entries = json.loads(raw)
+        except ValueError as exc:
+            raise ConfigError(f"SEU_ACCOUNTS 不是合法 JSON：{exc}") from exc
+        if not isinstance(entries, list) or not entries:
+            raise ConfigError("SEU_ACCOUNTS 需要是非空数组")
+
+        accounts: list[Settings] = []
+        seen: set[str] = set()
+        for index, item in enumerate(entries, 1):
+            if not isinstance(item, dict):
+                raise ConfigError(f"SEU_ACCOUNTS 第 {index} 项不是对象")
+            username = str(item.get("username") or "").strip()
+            password = str(item.get("password") or "")
+            if not username or not password.strip():
+                raise ConfigError(f"SEU_ACCOUNTS 第 {index} 项缺少 username 或 password")
+            if username in seen:
+                raise ConfigError(f"SEU_ACCOUNTS 里账号 {username} 重复")
+            seen.add(username)
+            accounts.append(replace(base, username=username, password=password))
+        return accounts
 
     def describe(self) -> str:
         """启动摘要，绝不包含凭据。"""

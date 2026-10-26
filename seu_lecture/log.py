@@ -11,6 +11,7 @@ from zoneinfo import ZoneInfo
 SHANGHAI = ZoneInfo("Asia/Shanghai")
 
 _lock = threading.Lock()
+_local = threading.local()
 _log_dir: Path | None = None
 _warned: set[str] = set()
 
@@ -22,10 +23,16 @@ def setup(directory: Path | None) -> None:
         _log_dir.mkdir(parents=True, exist_ok=True)
 
 
+def set_prefix(text: str) -> None:
+    """给当前线程的日志加前缀。多个账号并行时用来区分是谁在说话。"""
+    _local.prefix = text
+
+
 def log(message: str, *, level: str = "INFO") -> None:
     now = datetime.now(SHANGHAI)
+    prefix = getattr(_local, "prefix", "")
     # 带日期：一次运行常跨好几天（讲座分散在不同日子），只给时分秒会看不出是哪天
-    line = f"[{now:%Y-%m-%d %H:%M:%S}] {level:<5} {message}"
+    line = f"[{now:%Y-%m-%d %H:%M:%S}] {level:<5} {prefix}{message}"
     with _lock:
         print(line, flush=True)
         if _log_dir is None:
@@ -33,7 +40,7 @@ def log(message: str, *, level: str = "INFO") -> None:
         try:
             path = _log_dir / f"{now:%Y-%m-%d}.log"
             with path.open("a", encoding="utf-8") as handle:
-                handle.write(f"[{now:%Y-%m-%d %H:%M:%S}] {level:<5} {message}\n")
+                handle.write(f"[{now:%Y-%m-%d %H:%M:%S}] {level:<5} {prefix}{message}\n")
         except OSError as exc:  # 日志写不进去不能中断主流程
             if str(exc) not in _warned:
                 _warned.add(str(exc))

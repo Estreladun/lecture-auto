@@ -11,8 +11,13 @@
 from __future__ import annotations
 
 import argparse
+import hashlib
 import json
 import sys
+import threading
+import time
+from dataclasses import replace
+from pathlib import Path
 
 from seu_lecture import __version__, captcha, log
 from seu_lecture.app import Runner, clock_offset
@@ -26,7 +31,7 @@ from seu_lecture.state import StateError, Store
 
 def _prepare(settings: Settings, *, lock: bool) -> tuple[Store, Mailer | None]:
     settings.state_dir.mkdir(parents=True, exist_ok=True)
-    log.setup(settings.state_dir / "logs")
+    # 日志目录由 main 统一设置：多账号共用一个 logs，靠线程前缀区分
     store = Store(settings.state_dir, settings.username, lock=lock)
     return store, build_mailer(settings.smtp)
 
@@ -129,12 +134,64 @@ def cmd_status(settings: Settings) -> int:
     return 0
 
 
-def cmd_run(settings: Settings, *, dry_run: bool) -> int:
+def _account_state_dir(settings: Settings, total: int) -> Path:
+    """多账号时给每个账号单独的状态目录。
+
+    state.json 里记着账号哈希，两个账号共用一个文件会互相重置，
+    所以必须按账号分目录。
+    """
+    if total <= 1:
+        return settings.state_dir
+    digest = hashlib.sha256(settings.username.encode()).hexdigest()[:8]
+    return settings.state_dir / digest
+
+
+def cmd_run(settings: Settings, *, dry_run: bool, total: int = 1) -> int:
+    settings = replace(settings, state_dir=_account_state_dir(settings, total))
     store, mailer = _prepare(settings, lock=True)
     try:
         return Runner(settings, store, mailer, dry_run=dry_run).run()
     finally:
         store.close()
+
+
+def cmd_run_many(accounts: list[Settings], *, dry_run: bool) -> int:
+    """一个账号直接跑；多个账号各起一个线程并行。"""
+    if len(accounts) == 1:
+        return cmd_run(accounts[0], dry_run=dry_run)
+
+    log.info(f"多账号模式：{len(accounts)} 个账号并行抢位")
+    failed: list[str] = []
+
+    def worker(item: Settings) -> None:
+        tag = f"[{item.username[:3]}***] "
+        log.set_prefix(tag)
+        try:
+            if cmd_run(item, dry_run=dry_run, total=len(accounts)) != 0:
+                failed.append(item.username)
+        except StateError as exc:
+            log.error(f"状态异常：{exc}")
+            failed.append(item.username)
+        except Exception as exc:  # 单账号崩掉不能拖垮其他账号
+            log.error(f"异常退出：{type(exc).__name__} {exc}")
+            failed.append(item.username)
+        finally:
+            log.set_prefix("")
+
+    threads = [
+        threading.Thread(target=worker, args=(item,), name=f"acc-{item.username[:4]}")
+        for item in accounts
+    ]
+    for thread in threads:
+        thread.start()
+        time.sleep(0.3)  # 错开启动，避免几个账号在同一毫秒一起打登录接口
+    for thread in threads:
+        thread.join()
+
+    if failed:
+        log.warn(f"{len(failed)}/{len(accounts)} 个账号异常结束")
+        return 1
+    return 0
 
 
 def main(argv: list[str] | None = None) -> int:
@@ -152,21 +209,28 @@ def main(argv: list[str] | None = None) -> int:
 
     try:
         # 只有单独测邮件时才允许不填账号密码
-        settings = Settings.load(require_credentials=not args.test_mail)
+        accounts = Settings.load_all(require_credentials=not args.test_mail)
     except ConfigError as exc:
         print(f"配置错误：{exc}", file=sys.stderr)
         return 2
 
-    if args.check:
-        return cmd_check(settings)
-    if args.test_mail:
-        return cmd_test_mail(settings)
-    if args.status:
-        return cmd_status(settings)
+    primary = accounts[0]
+    if len(accounts) > 1 and (args.check or args.status or args.test_mail):
+        print(
+            f"注意：检测到 {len(accounts)} 个账号，"
+            f"该项只作用于第一个（{primary.username[:3]}***）"
+        )
 
-    log.setup(settings.state_dir / "logs")
+    if args.check:
+        return cmd_check(primary)
+    if args.test_mail:
+        return cmd_test_mail(primary)
+    if args.status:
+        return cmd_status(primary)
+
+    log.setup(primary.state_dir / "logs")
     try:
-        return cmd_run(settings, dry_run=args.dry_run)
+        return cmd_run_many(accounts, dry_run=args.dry_run)
     except StateError as exc:
         log.error(str(exc))
         return 2
