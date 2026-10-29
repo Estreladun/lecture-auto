@@ -11,6 +11,7 @@ from __future__ import annotations
 import base64
 import json
 import re
+import sys
 import threading
 import time
 import uuid
@@ -86,6 +87,13 @@ _NOT_OPEN_WORDS = ("尚未开放", "未开放", "未开始", "未到预约", "�
 
 class LoginError(Exception):
     """登录失败，需要人工介入或检查账号。"""
+
+
+class SecondFactorRequired(LoginError):
+    """短信二次认证没能完成（无交互终端、用户取消或验证码多次错误）。
+
+    单独分类是为了让调用方不要自动重试——每次重试都会重新发一条短信。
+    """
 
 
 class SessionExpired(Exception):
@@ -242,6 +250,10 @@ def _visible_text(html: str, limit: int = 220) -> str:
     return text[:limit] or "（空）"
 
 
+# 多账号并行时串行化短信验证码输入，避免几个线程的提示交织在一起
+_STAGE2_LOCK = threading.Lock()
+
+
 class GatewayIPAdapter(requests.adapters.HTTPAdapter):
     """把发往网关域名的请求定向到固定 IP，同时保留域名做 Host 头与 TLS SNI。
 
@@ -267,10 +279,16 @@ class GatewayIPAdapter(requests.adapters.HTTPAdapter):
 
 class LectureClient:
     def __init__(self, username: str, password: str, endpoints: Endpoints, *,
-                 use_proxy: bool = False) -> None:
+                 use_proxy: bool = False, stage2_code: str = "",
+                 fingerprint: str = "") -> None:
         self.username = username
         self.password = password
         self.ep = endpoints
+        # 预先提供的短信验证码（SEU_STAGE2_CODE）；留空则登录时在终端输入
+        self.stage2_code = stage2_code.strip()
+        # 设备指纹（SEU_FINGERPRINT）：留空表示不使用「记住此设备」。
+        # 不能按账号推导——那等于把信任标识公开，会让二次认证形同虚设。
+        self.fingerprint = fingerprint.strip()
         self.session = requests.Session()
         self.session.headers.update({"User-Agent": UA, "Accept-Language": "zh-CN,zh;q=0.9"})
         # 学校系统大多公网可达；默认绕开系统代理，避免 Clash/V2Ray 之类把校园域名打到 502
@@ -380,11 +398,16 @@ class LectureClient:
         # 所以优先走网关；网关不可达时才退回直接 CAS。
         try:
             self._gateway_login()
+        except SecondFactorRequired:
+            # 二次认证是账号级要求，换一条登录路径只会再发一条短信，没有意义
+            raise
         except Exception as exc:
             log.warn(f"网关认证失败：{exc}")
             log.info("回退为直接 CAS 登录")
             try:
                 self._direct_login()
+            except SecondFactorRequired:
+                raise
             except Exception as direct_exc:
                 log.warn(f"直接 CAS 也失败：{direct_exc}")
         else:
@@ -397,6 +420,8 @@ class LectureClient:
                 f"{len(app.text)} 字节，含 indexjsp.js={'indexjsp.js' in app.text}"
             )
             log.warn(f"页面片段：{_visible_text(app.text)}")
+            # 以前这里只打警告，导致 login() 误报「登录成功」，后面的接口探测才暴露失败。
+            raise LoginError("登录后未能进入应用页面，请检查账号状态后重试")
 
     def _resolve_app(self) -> requests.Response:
         """访问登录入口；若应用要求单独授权则补一次 verifyTgt。"""
@@ -557,10 +582,13 @@ class LectureClient:
                 return code
         raise LoginError("学校要求图形验证码但自动识别失败，请先用浏览器登录一次再运行")
 
-    def _cas_login(self, service: str) -> str:
-        need = self._payload(self._request("GET", self.ep.cas + "needCaptcha"))
-        captcha_code = "" if need.get("code") == 200 else self._solve_captcha()
+    def _login_payload(self, service: str, captcha: str, verify_code: str = "",
+                       *, remember_trust: bool = False) -> dict[str, Any]:
+        """构造 casLogin 表单；每次提交都重新取公钥加密密码。
 
+        浏览器在短信二次认证的弹框点「确定」时，也是重新取一次公钥再提交，
+        所以这里不能复用第一次的密文。
+        """
         key_data = self._payload(self._request("POST", self.ep.cas + "getChiperKey", json={}))
         try:
             encoded = key_data["publicKey"]
@@ -572,27 +600,120 @@ class LectureClient:
             raise LoginError("无法解析学校下发的加密公钥") from None
 
         def encrypt(value: str) -> str:
-            return base64.b64encode(key.encrypt(value.encode(), padding.PKCS1v15())).decode()
+            return base64.b64encode(
+                key.encrypt(value.encode(), padding.PKCS1v15())
+            ).decode()
 
-        data = {
+        # 注意：短信验证码和密码一样，需要用同一把公钥加密后再提交。
+        # 前端里是 n.encrypt(stage2ValidateCode)，明文提交会被判「认证失败」。
+        return {
             "service": service,
             "username": self.username,
             "password": encrypt(self.password),
-            "captcha": captcha_code,
+            "captcha": captcha,
             "rememberMe": False,
             "loginType": "account",
             "wxBinded": False,
             "mobilePhoneNum": "",
-            "fingerPrint": None,
-            "mobileVerifyCode": "",
+            "mobileVerifyCode": encrypt(verify_code) if verify_code.strip() else "",
+            "fingerPrint": self.fingerprint or None,
+            "rememberTrustDevice": remember_trust and bool(self.fingerprint),
         }
+
+    def _cas_login(self, service: str) -> str:
+        need = self._payload(self._request("GET", self.ep.cas + "needCaptcha"))
+        captcha_code = "" if need.get("code") == 200 else self._solve_captcha()
+
+        data = self._login_payload(service, captcha_code)
         result = self._payload(self._request("POST", self.ep.cas + "casLogin", json=data))
         if result.get("code") == 200 and isinstance(result.get("redirectUrl"), str):
             return result["redirectUrl"]
+        if result.get("code") == 501:
+            raise LoginError("学校要求先修改密码（密码强度不足），无法自动登录")
         if result.get("code") == 502 or result.get("needStage2Validation"):
-            raise LoginError("该账号触发了短信二次认证，无法自动完成")
+            detail = result.get("info") or ""
+            log.warn("本次登录需要短信二次认证" + (f"：{detail}" if detail else ""))
+            return self._cas_login_stage2(service)
         info = result.get("info") or f"code={result.get('code')}"
         raise LoginError(f"账号或密码被拒绝：{info}")
+
+    def _cas_login_stage2(self, service: str) -> str:
+        """完成短信二次认证：发验证码 → 终端输入 → 带 mobileVerifyCode 重发登录。
+
+        对应浏览器里的流程：
+            POST casback/sendStage2Code {"userId": 账号}
+            POST casback/casLogin        带上 mobileVerifyCode 与 rememberTrustDevice
+        """
+        sent = self._payload(
+            self._request(
+                "POST",
+                self.ep.cas + "sendStage2Code",
+                json={"userId": self.username},
+            )
+        )
+        if sent.get("code") != 200:
+            info = sent.get("info") or f"code={sent.get('code')}"
+            if "未登记手机号" in info:
+                raise SecondFactorRequired(
+                    f"短信验证码发送失败：{info}。此前同一账号能正常收码，"
+                    "多半是连续发送触发了学校限流，或手机绑定被风控临时冻结；"
+                    "请等待 10 分钟以上再试，并登录统一认证平台核对绑定手机。"
+                )
+            raise SecondFactorRequired(f"短信验证码发送失败：{info}")
+        log.info(f"短信验证码已发送：{sent.get('info') or '请查看绑定手机'}")
+
+        trust = bool(self.fingerprint)
+        if not trust:
+            log.info("未设置 SEU_FINGERPRINT，本次不启用「记住此设备」")
+
+        for attempt in range(1, 4):
+            code = self._ask_stage2_code()
+            # 与浏览器一致：验证码提交时 captcha 置空
+            data = self._login_payload(service, "", code, remember_trust=trust)
+            result = self._payload(
+                self._request("POST", self.ep.cas + "casLogin", json=data)
+            )
+            if result.get("code") == 200 and isinstance(result.get("redirectUrl"), str):
+                log.info("短信验证通过" + ("，已请求记住此设备" if trust else ""))
+                return result["redirectUrl"]
+
+            info = result.get("info") or f"code={result.get('code')}"
+            if result.get("code") == 5002:
+                # 服务端已经不认这次二次认证的中间状态，再输码也没用
+                raise SecondFactorRequired(f"二次认证会话已失效：{info}，请重新运行")
+            if attempt < 3:
+                log.warn(f"短信验证码未通过：{info}，请重新输入")
+                continue
+            raise SecondFactorRequired(f"短信验证码连续 3 次未通过：{info}")
+
+        raise SecondFactorRequired("短信二次认证未完成")
+
+    def _ask_stage2_code(self) -> str:
+        if self.stage2_code:
+            # 一次性验证码：只消费一次，避免失败后拿同一个失效码反复重试
+            code, self.stage2_code = self.stage2_code, ""
+            return code
+        if not sys.stdin.isatty():
+            raise SecondFactorRequired(
+                "该账号需要短信二次认证。请在交互式终端运行，"
+                "或设置 SEU_STAGE2_CODE 后重试"
+            )
+        with _STAGE2_LOCK:
+            # 粘贴命令时终端里可能残留一个空行，会被 input() 立刻读走；
+            # 所以空输入只提示重来，不直接判失败。
+            for _ in range(3):
+                log.info("请输入手机收到的短信验证码")
+                try:
+                    code = input("短信验证码（6 位）：").strip()
+                except EOFError:
+                    raise SecondFactorRequired(
+                        "终端没有读到输入。请确认在交互式终端运行，"
+                        "或设置 SEU_STAGE2_CODE 后重试"
+                    ) from None
+                if code:
+                    return code
+                log.warn("输入为空，请重新输入（验证码 2 分钟内有效）")
+        raise SecondFactorRequired("连续 3 次未输入短信验证码，登录中止")
 
     # ── 业务接口 ────────────────────────────────────────────
 
