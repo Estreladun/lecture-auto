@@ -22,6 +22,7 @@ from .client import (
     ApiError,
     LectureClient,
     LoginError,
+    SecondFactorRequired,
     SessionExpired,
 )
 from .config import Settings
@@ -87,6 +88,8 @@ class Runner:
         self.client = LectureClient(
             settings.username, settings.password, settings.endpoints,
             use_proxy=settings.use_proxy,
+            stage2_code=settings.stage2_code,
+            fingerprint=settings.device_fingerprint,
         )
 
         self._scheduler: BlockingScheduler | None = None
@@ -132,6 +135,11 @@ class Runner:
             try:
                 self.client.login()
                 return True
+            except SecondFactorRequired as exc:
+                # 重试只会再发一条短信，交给人工处理
+                log.error(f"登录失败：{exc}")
+                self._notify("login_failed", str(exc))
+                return False
             except LoginError as exc:
                 log.error(f"登录失败：{exc}")
                 if attempt == 3:
@@ -153,6 +161,10 @@ class Runner:
                     self.client.probe()
                     log.info("重新登录成功，继续任务")
                     return True
+                except SecondFactorRequired as exc:
+                    log.error(f"重新登录需要短信二次认证：{exc}")
+                    self._notify("login_failed", str(exc))
+                    return False
                 except LoginError as exc:
                     log.error(f"重新登录被拒绝：{exc}")
                     self._notify("login_failed", str(exc))

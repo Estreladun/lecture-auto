@@ -42,6 +42,8 @@ def cmd_check(settings: Settings) -> int:
     client = LectureClient(
         settings.username, settings.password, settings.endpoints,
         use_proxy=settings.use_proxy,
+        stage2_code=settings.stage2_code,
+        fingerprint=settings.device_fingerprint,
     )
 
     print("\n[1/5] 登录统一身份认证 …")

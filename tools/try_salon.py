@@ -99,6 +99,8 @@ def main() -> int:
     client = LectureClient(
         settings.username, settings.password, settings.endpoints,
         use_proxy=settings.use_proxy,
+        stage2_code=settings.stage2_code,
+        fingerprint=settings.device_fingerprint,
     )
 
     print("登录 …")

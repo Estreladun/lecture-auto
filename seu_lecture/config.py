@@ -176,6 +176,10 @@ class Settings:
     smtp: Smtp | None
     report_hour: int
     use_proxy: bool
+    # 短信二次认证：留空则登录时在终端输入；预置值适合无交互运行
+    stage2_code: str = ""
+    # 设备指纹：留空按账号自动生成，跨次运行保持一致才能被「记住此设备」
+    device_fingerprint: str = ""
 
     @property
     def endpoints(self) -> Endpoints:
@@ -245,6 +249,8 @@ class Settings:
             smtp=Smtp.load(),
             report_hour=_number("SEU_MAIL_REPORT_HOUR", 20, minimum=0, cast=int),
             use_proxy=_flag("SEU_USE_PROXY", False),
+            stage2_code=_text("SEU_STAGE2_CODE"),
+            device_fingerprint=_text("SEU_FINGERPRINT"),
         )
 
     @classmethod
