@@ -873,7 +873,7 @@ class LectureClient:
         if any(word in lowered for word in _NOT_OPEN_WORDS):
             return NOT_OPEN
         if any(word in lowered for word in _CAPTCHA_WORDS):
-            log.info(f"提交被判定验证码错误：{lowered[:120]}")
+            log.info(f"提交被判定验证码错误（识别为 {code}）：{lowered[:120]}")
             return CAPTCHA_WRONG
         if any(word in lowered for word in _BUSY_WORDS):
             return BUSY

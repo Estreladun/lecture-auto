@@ -96,6 +96,9 @@ class Runner:
         self._pending: set[str] = set()
         self._lock = threading.Lock()
         self._relogin_lock = threading.Lock()
+        # 同一会话只有一个有效验证码：取码和提交必须成对串行，
+        # 否则多个目标并发取码会互相作废，服务端只会回「验证码错误」。
+        self._vcode_lock = threading.Lock()
         self._codes: dict[str, tuple[str, float]] = {}
 
     # ── 入口 ────────────────────────────────────────────────
@@ -208,6 +211,8 @@ class Runner:
         )
         self._scheduler = scheduler
         self._pending = {lecture.wid for lecture in lectures}
+        if len(lectures) > 1:
+            log.info("多目标并行：取码与提交已串行化，预取验证码仅在单目标时启用")
 
         scheduler.add_job(
             self._keepalive, "interval",
@@ -300,8 +305,13 @@ class Runner:
         return captcha.recognize(image, rescue=allow_rescue)
 
     def _prefetch(self, lecture: Lecture) -> None:
+        # 会话里只存一张验证码。多个目标同时预取会互相覆盖，
+        # 到点后只有最后一张有效，其余全被判「验证码错误」。
+        if len(self._pending) > 1:
+            return
         try:
-            code = self._fresh_code(lecture.wid)
+            with self._vcode_lock:
+                code = self._fresh_code(lecture.wid)
         except SessionExpired:
             self._relogin()
             return
@@ -416,21 +426,14 @@ class Runner:
                 busy_attempt = 0
                 while True:
                     try:
-                        if not code:
-                            code = self._fresh_code(
-                                wid, allow_rescue=code_misses >= STRICT_CODE_ATTEMPTS
-                            )
-                        if not code:
-                            # 识别不可靠：直接换一张，不浪费一次提交机会
-                            code_misses += 1
-                            if code_misses >= CODE_MISS_LIMIT:
-                                log.error(
-                                    f"连续 {code_misses} 次取不到可信验证码，放弃：{lecture.title}"
+                        # 取码 + 提交必须原子完成：中间夹进任何一次
+                        # 取码请求都会让服务端作废当前验证码。
+                        with self._vcode_lock:
+                            if not code:
+                                code = self._fresh_code(
+                                    wid, allow_rescue=code_misses >= STRICT_CODE_ATTEMPTS
                                 )
-                                self._notify("captcha_locked", f"讲座：{lecture.title}")
-                                return
-                            continue
-                        result = self.client.submit(wid, code)
+                            result = self.client.submit(wid, code) if code else None
                     except SessionExpired:
                         if not self._relogin():
                             return
@@ -439,6 +442,17 @@ class Runner:
                     except Exception as exc:
                         log.warn(f"提交异常：{type(exc).__name__}")
                         result = FAILED
+
+                    if result is None:
+                        # 识别不可靠：直接换一张，不浪费一次提交机会
+                        code_misses += 1
+                        if code_misses >= CODE_MISS_LIMIT:
+                            log.error(
+                                f"连续 {code_misses} 次取不到可信验证码，放弃：{lecture.title}"
+                            )
+                            self._notify("captcha_locked", f"讲座：{lecture.title}")
+                            return
+                        continue
 
                     code = None
                     attempts += 1
